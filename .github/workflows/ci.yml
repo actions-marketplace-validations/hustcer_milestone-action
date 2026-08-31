@@ -1,13 +1,14 @@
 # Description:
 #   - Create, Close and Delete a milestone.
 
-name: Milestone Operations@develop
+name: Milestone Operations@local
 on:
   pull_request:
   workflow_dispatch:
 
 # Fix GraphQL: Resource not accessible by integration (updatePullRequest)
 permissions:
+  contents: read
   pull-requests: write
 
 jobs:
@@ -15,29 +16,92 @@ jobs:
     runs-on: ubuntu-latest
     name: Milestone Operates
     steps:
+      # Required by `uses: ./`, so that CI exercises the code under review
+      # instead of the published action from a remote branch.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # Derive the due date at run time: a hard-coded one silently drifts into the past
+      # and the "milestone due in the future" intent of this test quietly disappears.
+      # Deliberately not a `nu` step: `nu` is only on the runner once the action's own
+      # Setup Nu step has run, so a step before that one would need a second version
+      # pin here, free to drift away from the one in `action.yaml`.
+      - name: Compute Due Date
+        id: due
+        run: echo "date=$(date -u -d '+365 days' '+%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
       - name: Create Milestone
         id: create
-        uses: hustcer/milestone-action@develop
+        uses: ./
         with:
           action: create
           title: 'v0.0.1'
-          due-on: '2025/12/31'
+          due-on: ${{ steps.due.outputs.date }}
           description: 'Test Create Milestone'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Close Milestone
         id: close
-        uses: hustcer/milestone-action@develop
+        uses: ./
         with:
           action: close
           milestone: 'v0.0.1'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Resolving a title has to search closed milestones too, otherwise closing an
+      # already-closed one fails with "Milestone not found" instead of being a no-op.
+      - name: Close Milestone Again
+        uses: ./
+        with:
+          action: close
+          milestone: 'v0.0.1'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Delete Milestone
         id: delete
-        uses: hustcer/milestone-action@develop
+        uses: ./
         with:
           action: delete
           milestone: ${{ steps.create.outputs.milestone-number }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # A purely numeric title used to reach the API as a JSON number, which the
+      # milestones endpoint rejects with `422 ... 20260821 is not a string`.
+      # Deleted by number: an all-digit `milestone` value always routes to the number path.
+      - name: Create Milestone With Numeric Title
+        id: numeric
+        uses: ./
+        with:
+          action: create
+          title: '20260821'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Delete Milestone With Numeric Title
+        uses: ./
+        with:
+          action: delete
+          milestone: ${{ steps.numeric.outputs.milestone-number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # `create` without a title used to fall back to a '1.0.0' placeholder milestone.
+      - name: Create Milestone Without Title
+        id: no-title
+        continue-on-error: true
+        uses: ./
+        with:
+          action: create
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Assert Create Without Title Failed
+        if: steps.no-title.outcome != 'failure'
+        shell: nu {0}
+        run: |
+          print '::error::`create` without a title should fail instead of creating a placeholder milestone'
+          exit 1

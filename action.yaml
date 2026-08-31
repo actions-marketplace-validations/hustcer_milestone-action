@@ -31,16 +31,16 @@ inputs:
     description: 'The action to perform, should be bind-pr,bind-issue,create, delete or close. Defaults to bind-pr.'
   title:
     required: false
-    default: '1.0.0'
-    description: 'The title of the milestone to create.'
+    default: ''
+    description: 'The title of the milestone to create. Required by the `create` action.'
   description:
     required: false
-    default: 'The first milestone.'
+    default: ''
     description: 'The description of the milestone to create.'
   due-on:
     required: false
     default: ''
-    description: 'The due date of the milestone to create.'
+    description: 'The due date of the milestone to create, format: yyyy-mm-dd.'
   force:
     required: false
     default: false
@@ -48,7 +48,7 @@ inputs:
   milestone:
     required: false
     default: ''
-    description: 'The milestone to set, close or delete.'
+    description: 'The milestone to set, close or delete. `close`/`delete` take a title or a number, and an all-digit value is read as a number. `bind-pr`/`bind-issue` match by title only.'
   inherit-from-issue:
     required: false
     default: true
@@ -67,27 +67,43 @@ runs:
   using: 'composite'
   steps:
     - name: Setup Nu
-      uses: hustcer/setup-nu@v3.22
+      uses: hustcer/setup-nu@v3.27
       with:
-        version: '0.110.0'
+        version: '0.115.1'
         enable-plugins: nu_plugin_query
 
     - name: Set Milestone
       shell: nu {0}
       id: action
+      # Inputs are passed through the environment instead of being interpolated into the
+      # script body. `${{ }}` expansion happens before the script is written to disk, so
+      # any input containing a quote could otherwise break out of the string literal and
+      # execute arbitrary Nushell code on the runner.
+      env:
+        INPUT_ACTION: ${{ inputs.action }}
+        INPUT_TITLE: ${{ inputs.title }}
+        INPUT_FORCE: ${{ inputs.force }}
+        INPUT_DUE_ON: ${{ inputs.due-on }}
+        INPUT_MILESTONE: ${{ inputs.milestone }}
+        INPUT_DESCRIPTION: ${{ inputs.description }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_INHERIT_FROM_ISSUE: ${{ inputs.inherit-from-issue }}
+        EVENT_ISSUE_NUMBER: ${{ github.event.issue.number }}
+        EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
       run: |
         use ${{ github.action_path }}/nu/milestone.nu *
-        let action = '${{ inputs.action }}'
-        let repo = '${{ github.repository }}'
-        let title = '${{ inputs.title }}'
-        let dueOn = '${{ inputs.due-on }}'
-        let description = '${{ inputs.description }}'
-        let token = '${{ inputs.github-token }}'
-        let milestone = '${{ inputs.milestone }}'
-        let issue = '${{ github.event.issue.number }}'
-        let pr = '${{ github.event.pull_request.number }}'
-        let force = '${{ inputs.force }}' | into bool
-        let inheritFromIssue = '${{ inputs.inherit-from-issue }}' | into bool
+        use ${{ github.action_path }}/nu/common.nu [parse-bool]
+        let action = $env.INPUT_ACTION
+        let repo = $env.GITHUB_REPOSITORY
+        let title = $env.INPUT_TITLE
+        let dueOn = $env.INPUT_DUE_ON
+        let description = $env.INPUT_DESCRIPTION
+        let token = $env.INPUT_GITHUB_TOKEN
+        let milestone = $env.INPUT_MILESTONE
+        let issue = $env.EVENT_ISSUE_NUMBER
+        let pr = $env.EVENT_PR_NUMBER
+        let force = $env.INPUT_FORCE | parse-bool false
+        let inheritFromIssue = $env.INPUT_INHERIT_FROM_ISSUE | parse-bool true
         (milestone-action $action $repo
           --pr=$pr
           --issue=$issue

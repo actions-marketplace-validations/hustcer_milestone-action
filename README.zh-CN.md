@@ -56,7 +56,7 @@ jobs:
   with:
     action: create
     title: v1.0
-    due-on: 2025-05-01
+    due-on: 2026-05-01
     description: 'The first milestone of the project.'
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -91,13 +91,17 @@ jobs:
 | 名称               | 类型    | 描述                                                                                   |
 | ------------------ | ------- | -------------------------------------------------------------------------------------- |
 | action             | String  | 要执行的操作, 可能的值未：create, close, delete, bind-pr, bind-issue，默认为 `bind-pr` |
-| title              | String  | 要创建的里程碑标题                                                                     |
+| title              | String  | 要创建的里程碑标题，`create` 操作必填                                                  |
 | due-on             | String  | 要创建的里程碑的截止日期（yyyy-mm-dd）                                                 |
 | description        | String  | 要创建的里程碑描述信息                                                                 |
 | milestone          | String  | 要关闭或删除的里程碑标题或编号，也可用于指定要绑定到 PR 或 issue 的里程碑标题          |
-| force              | Boolean | 如果 PR 或 Issue 已有里程碑，且与新的不同，则移除旧的并设置新的                        |
+| force              | Boolean | 如果 PR 或 Issue 已有里程碑，且与新的不同，则直接覆盖                                  |
 | inherit-from-issue | Boolean | 对于 bind-pr 操作，尝试从关闭的 issues 继承里程碑。默认为 `true`                       |
 | github-token       | String  | 用于访问 API 进行里程碑管理的 GitHub Token，默认为 `${{ github.token }}`               |
+
+> **注意：** 对 `close` 和 `delete`，全部由数字组成的 `milestone` 取值按里程碑**编号**解析，而非标题，
+> 因此标题为纯数字的里程碑（如 `20260821`）只能通过编号关闭或删除。
+> 对 `bind-pr` 和 `bind-issue`，`milestone` 仅按**标题**匹配。
 
 ### 常见问题
 

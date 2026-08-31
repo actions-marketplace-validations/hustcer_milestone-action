@@ -11,6 +11,10 @@
 
 use common.nu [hr-line]
 
+# Resolve the directory of this module at parse time, so that the `.gql` files can be
+# located no matter what the current working directory or the entry script path is.
+const GQL_DIR = path self .
+
 export def query-issue-closer-by-graphql [
   repo: string,         # Github repository name
   issueNO: int,         # Issue number
@@ -18,8 +22,7 @@ export def query-issue-closer-by-graphql [
 ] {
   let owner = $repo | split row / | first
   let name = $repo | split row / | last
-  let pwd = $env.FILE_PWD? | default 'nu'
-  let query = open -r $'($pwd)/issue.gql'
+  let query = open -r ($GQL_DIR | path join 'issue.gql')
   let variables = {
     repo_name: $name,
     repo_owner: $owner,
@@ -31,6 +34,17 @@ export def query-issue-closer-by-graphql [
   print 'Issue Status:'; hr-line; $status | reject events | table -ew 120 | print
 
   $status
+}
+
+# Abort with the actual GraphQL diagnostics instead of letting a missing `data`
+# field surface later as an inscrutable column-not-found error.
+def check-graphql-errors []: record -> nothing {
+  let errors = $in | get -o errors
+  if ($errors | is-not-empty) {
+    print $'(ansi r)GraphQL Error:(ansi reset)'
+    $errors | table -e | print
+    error make { msg: $'GraphQL query failed: ($errors | get -o 0.message | default "unknown error")' }
+  }
 }
 
 def query-issue-status [issueNO: int, payload: string, token: string] {
@@ -52,8 +66,9 @@ def query-issue-status [issueNO: int, payload: string, token: string] {
   loop {
     if $milestone != '-' or $tries > 5 { break }
     print $'Try to query milestone for issue (ansi p)($issueNO)(ansi reset) the (ansi p)($tries)(ansi reset) (if $tries == 1 { "time" } else { "times" }) ...'
-    $result = (http post --content-type application/json -H $HEADERS $QUERY_API $payload
-      | get data.repository.issueOrPullRequest)
+    let response = http post --content-type application/json -H $HEADERS $QUERY_API $payload
+    $response | check-graphql-errors
+    $result = ($response | get data.repository.issueOrPullRequest)
 
     $events = $result.timeline.edges.node | where {|it| $it.stateReason? | is-not-empty }
 
@@ -79,8 +94,7 @@ export def query-pr-closing-issues [
 ] {
   let owner = $repo | split row / | first
   let name = $repo | split row / | last
-  let pwd = $env.FILE_PWD? | default 'nu'
-  let query = open -r $'($pwd)/pr.gql'
+  let query = open -r ($GQL_DIR | path join 'pr.gql')
   let variables = {
     pr_number: $prNO,
     repo_name: $name,
@@ -93,11 +107,7 @@ export def query-pr-closing-issues [
 
   let response = http post --content-type application/json -H $HEADERS $QUERY_API $payload
 
-  # Check for errors in GraphQL response
-  if ($response | get -o errors) != null {
-    print $'(ansi r)GraphQL Error:(ansi reset)'
-    error make { msg: "GraphQL query failed" }
-  }
+  $response | check-graphql-errors
 
   let result = $response | get data.repository.pullRequest
 
